@@ -1,0 +1,5 @@
+# The worker shares the runtime image and swaps the entrypoint — same code,
+# same ffmpeg, different process.
+FROM nexus-motion:latest
+USER nexus
+CMD ["python", "-m", "nexus.worker.main"]

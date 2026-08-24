@@ -1,51 +1,38 @@
-# Environments
+# environments
 .env
 .env.local
 .env.*.local
+.venv/
 venv/
 env/
-.venv/
 
-# Python
+# python
 __pycache__/
 *.py[cod]
-*$py.class
 *.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Frontend Node Modules
-node_modules/
-dist/
+.eggs/
 build/
-.next/
+sdist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
 
-# Output assets
+# node
+node_modules/
+frontend/dist/
+
+# local data — generated media, sqlite, checkpoints
+storage/
+*.db
+*.sqlite3
 output/
-mock_assets/
 
-# IDEs
+# editors / os
 .idea/
 .vscode/
 *.swp
-*.swo
-
-# OS
 .DS_Store
 Thumbs.db
