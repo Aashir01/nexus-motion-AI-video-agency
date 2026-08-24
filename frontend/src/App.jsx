@@ -1,188 +1,109 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
-import HeroInput from './components/HeroInput.jsx'
-import PipelineVisualizer from './components/PipelineVisualizer.jsx'
-import LogTerminal from './components/LogTerminal.jsx'
-import ResultsDashboard from './components/ResultsDashboard.jsx'
-import VideoPlayer from './components/VideoPlayer.jsx'
-import './App.css'
+import React, { useEffect, useState } from 'react'
+import { api, isAuthed, setTokens } from './api'
+import Auth from './pages/Auth'
+import Dashboard from './pages/Dashboard'
+import SeriesDetail from './pages/SeriesDetail'
+import Production from './pages/Production'
+import Models from './pages/Models'
+import Billing from './pages/Billing'
 
-const PIPELINE_STEPS = [
-    { id: 'strategist', label: 'Niche\nStrategist', icon: '🔍', color: '#00d4ff', keywords: ['Strategizing', 'Niche Strategist', 'Scout'] },
-    { id: 'writer', label: 'Script\nArchitect', icon: '✍️', color: '#a855f7', keywords: ['Writing Script', 'Script Architect', 'Writer'] },
-    { id: 'designer', label: 'Visual\nDirector', icon: '🎨', color: '#f59e0b', keywords: ['Designing Visuals', 'Visual Director', 'Designer'] },
-    { id: 'media_synth', label: 'Media\nSynth', icon: '🎬', color: '#10b981', keywords: ['Synthesizing Media', 'Media Synth', 'Editor'] },
-    { id: 'assembler', label: 'Video\nAssembler', icon: '⚙️', color: '#f43f5e', keywords: ['Assembling Video', 'Assembler'] },
-    { id: 'critic', label: 'Quality\nAuditor', icon: '⭐', color: '#06b6d4', keywords: ['Quality Audit', 'Critic', 'Score'] },
-]
-
-function detectActiveStep(log) {
-    const upper = log.toUpperCase()
-    for (let i = 0; i < PIPELINE_STEPS.length; i++) {
-        if (PIPELINE_STEPS[i].keywords.some(kw => upper.includes(kw.toUpperCase()))) {
-            return i
-        }
-    }
-    return -1
+/** Hash routing — no dependency, and it survives a static deploy on any host. */
+function useHashRoute() {
+  const [route, setRoute] = useState(window.location.hash.slice(1) || '/')
+  useEffect(() => {
+    const onChange = () => setRoute(window.location.hash.slice(1) || '/')
+    window.addEventListener('hashchange', onChange)
+    return () => window.removeEventListener('hashchange', onChange)
+  }, [])
+  const navigate = (path) => { window.location.hash = path }
+  return [route, navigate]
 }
 
+const NAV = [
+  { path: '/', label: 'Studio', icon: '◧' },
+  { path: '/models', label: 'Models', icon: '◇' },
+  { path: '/billing', label: 'Billing', icon: '◈' },
+]
+
 export default function App() {
-    const [phase, setPhase] = useState('idle') // idle | running | done | error
-    const [jobId, setJobId] = useState(null)
-    const [logs, setLogs] = useState([])
-    const [activeStep, setActiveStep] = useState(-1)
-    const [completedSteps, setCompletedSteps] = useState([])
-    const [result, setResult] = useState(null)
-    const [error, setError] = useState(null)
-    const esRef = useRef(null)
+  const [authed, setAuthed] = useState(isAuthed())
+  const [me, setMe] = useState(null)
+  const [route, navigate] = useHashRoute()
 
-    const startJob = useCallback(async (nicheQuery) => {
-        setPhase('running')
-        setLogs([])
-        setActiveStep(0)
-        setCompletedSteps([])
-        setResult(null)
-        setError(null)
-
-        try {
-            const res = await fetch('/api/run', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ niche_query: nicheQuery })
-            })
-            if (!res.ok) {
-                const data = await res.json()
-                throw new Error(data.detail || 'Failed to start job')
-            }
-            const data = await res.json()
-            setJobId(data.job_id)
-            connectSSE(data.job_id)
-        } catch (e) {
-            setError(e.message)
-            setPhase('error')
-        }
-    }, [])
-
-    function connectSSE(id) {
-        if (esRef.current) esRef.current.close()
-        const es = new EventSource(`/api/stream/${id}`)
-        esRef.current = es
-        let currentStep = 0
-
-        es.onmessage = (evt) => {
-            const msg = evt.data
-            if (msg === '__DONE__') {
-                es.close()
-                setActiveStep(-1)
-                setCompletedSteps(PIPELINE_STEPS.map((_, i) => i))
-                setPhase('done')
-                fetchResult(id)
-                return
-            }
-            if (msg === '__ERROR__') {
-                es.close()
-                setPhase('error')
-                setError('Pipeline failed. Check logs for details.')
-                return
-            }
-            setLogs(prev => [...prev, msg])
-
-            const detected = detectActiveStep(msg)
-            if (detected > -1 && detected > currentStep) {
-                if (currentStep >= 0) {
-                    setCompletedSteps(prev => [...new Set([...prev, currentStep])])
-                }
-                currentStep = detected
-                setActiveStep(detected)
-            }
-        }
-
-        es.onerror = () => {
-            es.close()
-            setPhase('error')
-            setError('Connection to server lost. Is the API running on port 8000?')
-        }
+  useEffect(() => {
+    const onAuth = () => {
+      const next = isAuthed()
+      setAuthed(next)
+      if (!next) setMe(null)
     }
+    window.addEventListener('nexus:auth', onAuth)
+    return () => window.removeEventListener('nexus:auth', onAuth)
+  }, [])
 
-    async function fetchResult(id) {
-        try {
-            const res = await fetch(`/api/result/${id}`)
-            if (res.ok) {
-                const data = await res.json()
-                setResult(data)
-            }
-        } catch (e) {
-            console.error('Failed to fetch result:', e)
-        }
-    }
+  useEffect(() => {
+    if (authed) api.me().then(setMe).catch(() => {})
+  }, [authed, route])
 
-    useEffect(() => {
-        return () => { if (esRef.current) esRef.current.close() }
-    }, [])
+  if (!authed) return <Auth />
 
-    return (
-        <div className="app-layout">
-            {/* Header */}
-            <header className="app-header">
-                <div className="header-logo">
-                    <div className="logo-orb" />
-                    <span className="logo-text">NEXUS<span className="logo-accent">·MOTION</span></span>
-                </div>
-                <div className="header-badge">
-                    <span className="badge-dot" /> AI Video Agency
-                </div>
-            </header>
+  let page
+  const seriesMatch = route.match(/^\/series\/([^/]+)/)
+  const productionMatch = route.match(/^\/production\/([^/]+)/)
 
-            {/* Hero */}
-            <HeroInput onSubmit={startJob} isRunning={phase === 'running'} />
+  if (seriesMatch) page = <SeriesDetail id={seriesMatch[1]} navigate={navigate} />
+  else if (productionMatch) page = <Production id={productionMatch[1]} />
+  else if (route.startsWith('/models')) page = <Models />
+  else if (route.startsWith('/billing')) page = <Billing />
+  else page = <Dashboard navigate={navigate} />
 
-            {/* Pipeline (shown once running/done) */}
-            {phase !== 'idle' && (
-                <section className="section fade-in-section">
-                    <div className="section-label">PIPELINE</div>
-                    <PipelineVisualizer
-                        steps={PIPELINE_STEPS}
-                        activeStep={activeStep}
-                        completedSteps={completedSteps}
-                        phase={phase}
-                    />
-                </section>
-            )}
-
-            {/* Log Terminal */}
-            {logs.length > 0 && (
-                <section className="section fade-in-section">
-                    <div className="section-label">LIVE LOGS</div>
-                    <LogTerminal logs={logs} phase={phase} />
-                </section>
-            )}
-
-            {/* Error Banner */}
-            {phase === 'error' && error && (
-                <div className="error-banner fade-in-section">
-                    <span style={{ fontSize: '1.2rem' }}>❌</span>
-                    <span>{error}</span>
-                </div>
-            )}
-
-            {/* Results */}
-            {phase === 'done' && result && (
-                <section className="section fade-in-section">
-                    <div className="section-label">RESULTS</div>
-                    <ResultsDashboard result={result} jobId={jobId} />
-                </section>
-            )}
-
-            {/* Video Player */}
-            {phase === 'done' && result?.final_video_path && (
-                <section className="section fade-in-section">
-                    <div className="section-label">FINAL REEL</div>
-                    <VideoPlayer jobId={jobId} />
-                </section>
-            )}
-
-            <footer className="app-footer">
-                <span>Nexus-Motion MAS · Powered by LangGraph + CrewAI + Groq</span>
-            </footer>
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark">◈</span> Nexus Motion
         </div>
-    )
+        {NAV.map((item) => (
+          <a key={item.path} href={`#${item.path}`}
+             className={`nav-item ${isActive(route, item.path) ? 'active' : ''}`}>
+            <span style={{ width: 16 }}>{item.icon}</span> {item.label}
+          </a>
+        ))}
+        <div className="spacer" />
+        {me && (
+          <>
+            <div className="nav-section">Account</div>
+            <div style={{ padding: '4px 10px' }}>
+              <div className="small" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {me.email}
+              </div>
+              <div className="tiny dim">
+                {me.org_name} · {me.plan}
+              </div>
+              <div className="tiny" style={{ color: 'var(--accent)', marginTop: 3 }}>
+                {me.credit_balance.toLocaleString()} credits
+              </div>
+            </div>
+            <button className="nav-item" onClick={() => setTokens(null)}>
+              <span style={{ width: 16 }}>⏻</span> Sign out
+            </button>
+          </>
+        )}
+      </aside>
+
+      <main className="main">
+        <div className="topbar">
+          <div className="small muted">
+            {route === '/' ? 'Studio' : route.replace(/^\//, '').split('/')[0]}
+          </div>
+          <a className="btn btn-sm" href="/docs" target="_blank" rel="noreferrer">API docs</a>
+        </div>
+        {page}
+      </main>
+    </div>
+  )
+}
+
+function isActive(route, path) {
+  if (path === '/') return route === '/' || route.startsWith('/series') || route.startsWith('/production')
+  return route.startsWith(path)
 }

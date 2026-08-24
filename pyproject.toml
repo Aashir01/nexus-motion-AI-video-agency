@@ -1,0 +1,46 @@
+[project]
+name = "nexus-motion"
+version = "2.0.0"
+description = "Agentic studio that turns a brief into a 10-15 minute AI drama with a consistent cast"
+requires-python = ">=3.11"
+readme = "README.md"
+
+[project.scripts]
+nexus = "nexus.cli:main"
+nexus-worker = "nexus.worker.main:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["nexus*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [".venv", "storage", "frontend", "migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+  "E501",    # line length is handled by the formatter
+  "B008",    # FastAPI's Depends() in defaults is the documented pattern
+  "RUF012",  # mutable class attrs are fine on the provider adapters
+  "SIM108",  # ternaries are not always clearer
+  "UP042",   # str+Enum is deliberate: pydantic serialises these to plain strings
+  "RUF002",  # en/em dashes in prose docstrings are intentional
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "B011"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = ["slow: end-to-end runs that generate real media"]
+
+[tool.coverage.run]
+source = ["nexus"]
+omit = ["*/migrations/*", "*/tests/*"]

@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check nexus tests
+
+      - name: Test
+        env:
+          SECRET_KEY: ci-secret-key-for-tests-only
+          ENVIRONMENT: test
+        run: pytest -q --cov=nexus --cov-report=term-missing
+
+      - name: Verify migrations apply from scratch
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///./ci.db
+        run: alembic upgrade head
+
+      - name: Produce an episode end to end with no API keys
+        env:
+          SECRET_KEY: ci-secret-key-for-tests-only
+          LOG_LEVEL: WARNING
+        run: |
+          python -m nexus.cli produce \
+            --brief "A harbour-town drama about a fixer who has run out of favours." \
+            --minutes 1 --profile offline --resolution 480p --no-critique
+          test -f "$(find storage -name 'episode_*.mp4' | head -1)"
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: nexus-motion:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test the image
+        run: |
+          docker run -d --name nexus -p 8000:8000 \
+            -e SECRET_KEY=ci-secret -e DATABASE_URL=sqlite+aiosqlite:////tmp/ci.db \
+            nexus-motion:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8000/health && break || sleep 2
+          done
+          curl -fsS http://localhost:8000/capabilities | head -c 400
+          docker rm -f nexus

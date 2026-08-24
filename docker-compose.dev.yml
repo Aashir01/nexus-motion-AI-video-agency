@@ -1,0 +1,39 @@
+# Local development: hot-reloading API, live frontend, no image rebuilds.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+name: nexus-motion
+
+services:
+  api:
+    command: ["uvicorn", "nexus.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ./nexus:/app/nexus:ro
+      - media:/data/storage
+    environment:
+      ENVIRONMENT: local
+      LOG_FORMAT: console
+      LOG_LEVEL: DEBUG
+
+  worker:
+    volumes:
+      - ./nexus:/app/nexus:ro
+      - media:/data/storage
+    environment:
+      LOG_FORMAT: console
+    deploy:
+      replicas: 1
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /ui
+    command: sh -c "npm install && npm run dev -- --host"
+    environment:
+      VITE_PROXY_TARGET: http://api:8000
+    volumes:
+      - ./frontend:/ui
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  media:
